@@ -17,35 +17,41 @@ def get_admin_session():
     return AdminSession()
 
 def get_tenant_db(tenant_name: str, base_name: str):
-    """
-    Recupera un sessionmaker para la base de datos específica 
-    de un tenant y base_name. Si no existe, lanza excepción.
-    """
     db = AdminSession()
+    
     entry = (
         db.query(TenantDatabase)
-          .filter_by(tenant_name=tenant_name, base_name=base_name)
+          .join(Tenant)
+          .filter(Tenant.name == tenant_name, TenantDatabase.base_name == base_name)
           .first()
     )
+    
     db.close()
     if not entry:
         raise ValueError(f"No se encontró base '{base_name}' para tenant '{tenant_name}'")
+    
     path = entry.db_path
     engine_t = create_engine(f"sqlite:///{path}", connect_args={"check_same_thread": False})
     return sessionmaker(bind=engine_t)
 
+
 def get_schema_info(tenant_name: str, base_name: str) -> dict:
-    """Devuelve el JSON parseado con descripciones de tablas/columnas."""
-    db = AdminSession()
-    entry = (
+    db = get_admin_session()
+
+    result = (
         db.query(TenantDatabase)
-          .filter_by(tenant_name=tenant_name, base_name=base_name)
-          .first()
+        .join(Tenant)
+        .filter(Tenant.name == tenant_name, TenantDatabase.base_name == base_name)
+        .first()
     )
+
     db.close()
-    if not entry or not entry.schema_info:
-        return {}
-    return entry.schema_info
+
+    if not result:
+        raise Exception(f"No se encontró la base {base_name} para el tenant {tenant_name}")
+
+    return result.schema_info or {}
+
 
 def create_tenant(name: str):
     db = AdminSession()
@@ -56,12 +62,20 @@ def create_tenant(name: str):
 
 def register_tenant_database(tenant_name: str, base_name: str, db_path: str, schema_info: dict):
     print("Registrando nueva base...")
+    
     if not db_path.startswith("sqlite:///"):
         if not db_path.startswith("./"):
             db_path = f"./{db_path}"
 
     db = AdminSession()
-    existing = db.query(TenantDatabase).filter_by(tenant_name=tenant_name, base_name=base_name).first()
+
+    tenant = db.query(Tenant).filter_by(name=tenant_name).first()
+    if not tenant:
+        tenant = Tenant(name=tenant_name)
+        db.add(tenant)
+        db.commit()
+
+    existing = db.query(TenantDatabase).filter_by(tenant_id=tenant.id, base_name=base_name).first()
 
     if existing:
         print("Ya existe, actualizando...")
@@ -70,7 +84,7 @@ def register_tenant_database(tenant_name: str, base_name: str, db_path: str, sch
     else:
         print("No existe, creando...")
         new_entry = TenantDatabase(
-            tenant_name=tenant_name,
+            tenant_id=tenant.id,
             base_name=base_name,
             db_path=db_path,
             schema_info=schema_info
@@ -81,12 +95,19 @@ def register_tenant_database(tenant_name: str, base_name: str, db_path: str, sch
     db.close()
     print("Registro completado.")
 
+
 def list_tenant_databases(tenant_name: str):
     db = AdminSession()
+    tenant = db.query(Tenant).filter_by(name=tenant_name).first()
+    if not tenant:
+        db.close()
+        return []
+
     bases = (
         db.query(TenantDatabase)
-        .filter_by(tenant_name=tenant_name)
+        .filter_by(tenant_id=tenant.id)
         .all()
     )
     db.close()
     return [(b.base_name, b.db_path) for b in bases]
+

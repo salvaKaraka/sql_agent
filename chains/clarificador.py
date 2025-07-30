@@ -8,9 +8,10 @@ clarify_prompt = PromptTemplate(
 La base de datos tiene este esquema semántico:
 {schema}
 
-Un usuario te va a hacer una consulta en lenguaje natural. Tu tarea es identificar si la consulta es ambigua o falta información:
+Un usuario te va a hacer una consulta en lenguaje natural. Tu tarea es identificar si la consulta es ambigua o falta información que no pudiste deducir del esquema o encontrar en el contexto previo de la conversación:
 - Si la consulta original es ambigua o puede interpretarse de más de una forma, hacé preguntas aclaratorias.
 - Si la consulta es clara y no necesita aclaración, devolvé exactamente: NO_CLARIFICATION_NEEDED
+- Si la consulta es vaga pero el contexto previo te permite deducir la intención del usuario, también devolvé: NO_CLARIFICATION_NEEDED
 
 Ejemplo:
 Usuario: ¿Cuántos atendió Juan?
@@ -23,7 +24,17 @@ Ejemplo de pregunta clara:
 Usuario: ¿Cuántos pacientes atendió Juan Pérez en 2023?
 Asistente: NO_CLARIFICATION_NEEDED
 
+Es muy importante que recuerdes el contexto previo (es la conversación previa del usuario, si la hay) ya que el usuario puede olvidar detalles importantes que ya menciono y no hace falta pedirle que los vuelva a repetir.
+
+Ejemplo de pregunta vaga, pero que se salva con el contexto:
+Contexto previo: Juan Pérez es un médico del hospital X.
+Usuario: ¿Cuántos pacientes atendió en total?
+Asistente: NO_CLARIFICATION_NEEDED
+
 Generá preguntas cortas y claras para que el usuario aclare su intención, una por línea. No respondas la consulta.
+
+Contexto previo: 
+{contexto}
 
 Usuario: "{pregunta}"
 

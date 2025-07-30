@@ -1,4 +1,4 @@
-schema_info = {
+{
   "races": {
     "description": "Contiene información sobre cada Gran Premio, incluyendo la fecha, ubicación, número de ronda y año.",
     "columns": {
@@ -95,25 +95,3 @@ schema_info = {
     }
   }
 }
-
-from db import register_tenant_database
-from models import Tenant, TenantDatabase, Base
-from db import get_admin_session
-
-# Esto borra y recrea toda la tabla
-Base.metadata.drop_all(bind=admin_engine)
-Base.metadata.create_all(bind=admin_engine)
-
-db = get_admin_session()
-t = Tenant (name = "demo_empresa")
-db.add(t)
-db.flush()
-td = TenantDatabase(
-    tenant_name = t.name,
-    base_name = "f1",
-    schema_info = schema_info,
-    db_path = "./data/f1_tenant.db" 
-)
-db.add(td)
-db.commit()
-db.close()

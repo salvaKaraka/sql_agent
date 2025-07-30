@@ -14,9 +14,10 @@ from chains.reformulador import reformulador_chain
 from chains.corrector import corrector_chain
 
 # Clave para proteger endpoints administrativos
-ADMIN_API_KEY = os.getenv("ADMIN_API_KEY", "cambia_esta_clave_segura")
+ADMIN_API_KEY = os.getenv("ADMIN_API_KEY")
 
 app = FastAPI(on_startup=[init_admin_db])
+#iniciar server con: uvicorn app:app --reload --host 0.0.0.0 --port 8000
 
 # ----------------------------------------
 # Dependencias de autenticación
@@ -52,9 +53,16 @@ def register_tenant(name: str):
     Registra un nuevo tenant (empresa).
     """
     db = get_admin_session()
+    #verifica si ya existe el tenant, la id es autoincremental
     if db.query(Tenant).filter_by(name=name).first():
         db.close()
         raise HTTPException(400, "El tenant ya existe")
+    if not name:
+        db.close()
+        raise HTTPException(400, "El nombre del tenant no puede estar vacío")
+    if len(name) < 3:
+        db.close()
+        raise HTTPException(400, "El nombre del tenant debe tener al menos 3 caracteres")
     tenant = Tenant(name=name)
     db.add(tenant)
     db.commit()
@@ -124,51 +132,94 @@ def query_sql(
     """
     Procesa una consulta SQL en lenguaje natural usando contexto persistente.
     """
+    # 1) Obtener pregunta del usuario
     pregunta = payload.get("question")
     if not pregunta:
-        raise HTTPException(400, "Falta campo 'question'")
+        raise HTTPException(status_code=400, detail="Falta campo 'question'")
 
-    # 1) Guardar pregunta del usuario
+    # 2) Guardar pregunta original en la conversación
     add_message(tenant_name, user.id, "user", pregunta)
 
-    # 2) Cargar contexto previo
+    # 3) Cargar contexto de conversación previa
     context = get_context_window(tenant_name, user.id)
-    context_text = "\n".join(f"{r}: {c}" for r, c in context)
+    context_text = "\n".join(f"{r}: {c}" for r, c in context) if context else ""
 
-    # 3) Obtener esquema de la base
+    # 4) Cargar esquema semántico de la base
     schema_dict = get_schema_info(tenant_name, base_name)
-    schema_text = "\n".join(f"{t}: {d}" for t, d in schema_dict.items())
+    schema_text = "\n".join(f"{t}: {d}" for t, d in schema_dict.items()) if schema_dict else ""
 
-    # 4) Clarificación
+    # 5) Proceso de clarificación
+    print("Contexto:", context_text)
+    print("Pregunta:", pregunta)
     clar = clarificador_chain.run({
-        "context": context_text,
         "schema": schema_text,
+        "contexto": context_text,
         "pregunta": pregunta
     }).strip()
-    add_message(tenant_name, user.id, "assistant_clarification", clar)
-    if clar != "NO_CLARIFICATION_NEEDED":
-        return {"status": "clarification", "questions": clar.split("\n")}  
 
-    # 5) Ejecutar la consulta
+    add_message(tenant_name, user.id, "assistant_clarification", clar)
+
+    if clar != "NO_CLARIFICATION_NEEDED":
+        return {
+            "status": "clarification",
+            "questions": clar.split("\n")
+        }
+
+    # 6) Ejecutar la consulta con el agente SQL
     try:
         SessionDB = get_tenant_db(tenant_name, base_name)
         db_path = SessionDB().bind.url.database
-        resultado, explic = init_sql_agent(
-            sqlite_uri=f"sqlite:///{db_path}",
-            chains={"corrector": corrector_chain, "explicador": explicador_chain}
-        ).run({
-            "context": context_text,
-            "pregunta": pregunta,
-            "aclaraciones": clar
-        })
-    except Exception as e:
-        raise HTTPException(500, f"Error al ejecutar SQL: {e}")
 
-    # 6) Guardar resultado y explicación
+        # 🧠 Armar input final para el agente LLM
+        input_text = f"""Contexto previo:
+{context_text}
+
+Esquema de la base:
+{schema_text}
+
+Pregunta del usuario:
+{pregunta}
+
+Aclaraciones:
+{clar}
+"""
+
+        # 🎯 Ejecutar agente
+        sql_agent = init_sql_agent(
+            db_path=db_path,
+            tenant_name=tenant_name,
+            base_name=base_name
+        )
+        resultado = sql_agent.run({"input": input_text})
+
+    except Exception as e:
+            error_msg = str(e)
+
+            # Llamás a la chain de corrección
+            fixed_query = corrector_chain.run({
+                "query": input_text,
+                "error": error_msg,
+            })
+            resultado = sql_agent.run(fixed_query.strip())
+
+    # 7) Generar explicación del resultado
+    explic = explicador_chain.run({
+        "contexto": context_text,
+        "pregunta": pregunta,
+        "schema": schema_text,
+        "resultado": resultado
+
+    }).strip()
+
+    # 8) Guardar resultado y explicación en la conversación
     add_message(tenant_name, user.id, "assistant_query_result", resultado)
     add_message(tenant_name, user.id, "assistant_explanation", explic)
 
-    return {"status": "success", "result": resultado, "explicacion": explic}
+    return {
+        "status": "success",
+        "result": resultado,
+        "explicacion": explic
+    }
 
 @app.post("/feedback/{tenant_name}/{base_name}")
 def feedback(

@@ -1,41 +1,49 @@
-# memory.py
 from models import ChatMessage, Tenant
 from db import get_admin_session
-from config import MEMORY_WINDOW
+from config import MAX_TOKENS_CONTEXT
 
-def add_message(tenant_name: str, session_id: str, role: str, content: str):
+# Guarda un mensaje sin eliminar los anteriores
+def add_message(tenant_name: str, user_id: str, role: str, content: str):
     db = get_admin_session()
-
     tenant = db.query(Tenant).filter_by(name=tenant_name).first()
     tenant_id = tenant.id if tenant else None
 
     db.add(ChatMessage(
         tenant_id=tenant_id,
-        session_id=session_id,
+        user_id=user_id,
         role=role,
         content=content
     ))
     db.commit()
-
-    # Mantener solo los últimos N mensajes por sesión
-    msgs = (
-        db.query(ChatMessage)
-          .filter_by(session_id=session_id)
-          .order_by(ChatMessage.timestamp.desc())
-          .all()
-    )
-    for old in msgs[MEMORY_WINDOW:]:
-        db.delete(old)
-    db.commit()
     db.close()
 
-def load_memory(tenant_name: str, session_id: str):
+# Carga todos los mensajes para un usuario en una sesión
+def load_memory(tenant_name: str, user_id: str):
     db = get_admin_session()
     msgs = (
         db.query(ChatMessage)
-          .filter_by(session_id=session_id)
+          .filter_by(tenant_id=db.query(Tenant).filter_by(name=tenant_name).first().id,
+                     user_id=user_id)
           .order_by(ChatMessage.timestamp.asc())
           .all()
     )
     db.close()
     return [(m.role, m.content) for m in msgs]
+
+# Ventana contextual basada en tokens
+def get_context_window(tenant_name: str, user_id: str, max_tokens=MAX_TOKENS_CONTEXT):
+    messages = load_memory(tenant_name, user_id)
+    total_tokens = 0
+    context = []
+
+    def estimate_tokens(text):
+        return len(text.split())
+
+    for role, content in reversed(messages):
+        tokens = estimate_tokens(content)
+        if total_tokens + tokens > max_tokens:
+            break
+        context.insert(0, (role, content))
+        total_tokens += tokens
+
+    return context

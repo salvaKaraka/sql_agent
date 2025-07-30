@@ -97,30 +97,23 @@ schema_info = {
 }
 
 from db import register_tenant_database
-from models import Base
-from db import admin_engine
+from models import Tenant, TenantDatabase, Base
+from db import get_admin_session
 
 # Esto borra y recrea toda la tabla
 Base.metadata.drop_all(bind=admin_engine)
 Base.metadata.create_all(bind=admin_engine)
 
-
-register_tenant_database(
-    tenant_name="demo_empresa",
-    base_name="demo_empresa",  # nombre lógico de esta base
-    db_path="./data/demo_empresa.db",
-    schema_info=schema_info
+db = get_admin_session()
+t = Tenant (name = "demo_empresa")
+db.add(t)
+db.flush()
+td = TenantDatabase(
+    tenant_name = t.name,
+    base_name = "f1",
+    schema_info = schema_info,
+    db_path = "./data/f1_tenant.db" 
 )
-
-from sqlalchemy.orm import Session
-from models import TenantDatabase
-from db import admin_engine  # o el engine correcto que usás para tenant info
-from db import list_tenant_databases  # Importa la función necesaria
-
-with Session(admin_engine) as session:
-    dbs = session.query(TenantDatabase).all()
-    for db in dbs:
-        print(db.tenant_name, db.base_name)
-        print(db.db_path)
-        print(list_tenant_databases("demo_empresa"))
-
+db.add(td)
+db.commit()
+db.close()

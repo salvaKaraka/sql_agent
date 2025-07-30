@@ -4,6 +4,7 @@ from agent import init_llm
 
 correct_prompt = PromptTemplate.from_template("""
 La siguiente consulta SQL produjo un error al ejecutarse:
+Esquema: {schema}
 Query: {query}
 Error: {error}
 

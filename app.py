@@ -97,6 +97,32 @@ def register_database(tenant_id: int, base_name: str, db_path: str, schema_info:
     db.close()
     return {"database_id": td.id, "base_name": td.base_name}
 
+@app.post("/schema/{tenant_name}/{base_name}", dependencies=[Depends(get_admin)])
+def modify_schema(
+    tenant_name: str,
+    base_name: str,
+    payload: dict,
+):
+    new_schema = payload.get("schema")
+    if new_schema is None:
+        raise HTTPException(status_code=400, detail="Falta el campo 'schema' en el body.")
+
+    db =get_admin_session()
+
+    tenant = db.query(Tenant).filter_by(name=tenant_name).first()
+    if not tenant:
+        raise HTTPException(status_code=404, detail="Tenant no encontrado")
+
+    base = db.query(TenantDatabase).filter_by(base_name=base_name, tenant_id=tenant.id).first()
+    if not base:
+        raise HTTPException(status_code=404, detail="Base de datos no encontrada")
+
+    # Sobrescribir el esquema
+    base.schema_info = new_schema
+    db.commit()
+
+    return {"resultado": "Esquema actualizado correctamente"}
+
 @app.post("/admin/register_user", dependencies=[Depends(get_admin)])
 def register_user(tenant_id: int, username: str):
     """
@@ -149,8 +175,6 @@ def query_sql(
     schema_text = "\n".join(f"{t}: {d}" for t, d in schema_dict.items()) if schema_dict else ""
 
     # 5) Proceso de clarificación
-    print("Contexto:", context_text)
-    print("Pregunta:", pregunta)
     clar = clarificador_chain.run({
         "schema": schema_text,
         "contexto": context_text,
@@ -197,6 +221,7 @@ Aclaraciones:
 
             # Llamás a la chain de corrección
             fixed_query = corrector_chain.run({
+                "schema": schema_text,
                 "query": input_text,
                 "error": error_msg,
             })

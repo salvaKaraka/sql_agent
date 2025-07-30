@@ -9,7 +9,7 @@ admin_engine = create_engine(ADMIN_DB_URL, connect_args={"check_same_thread": Fa
 AdminSession = sessionmaker(bind=admin_engine)
 
 def init_admin_db():
-    """Crea las tablas admin: tenants + tenant_databases"""
+    """Crea/abre las tablas admin: tenants + tenant_databases"""
     Base.metadata.create_all(admin_engine)
 
 def get_admin_session():

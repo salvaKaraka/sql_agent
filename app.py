@@ -172,7 +172,7 @@ def query_sql(
 
     # 4) Cargar esquema semántico de la base
     schema_dict = get_schema_info(tenant_name, base_name)
-    schema_text = "\n".join(f"{t}: {d}" for t, d in schema_dict.items()) if schema_dict else ""
+    schema_text = str(schema_dict) if schema_dict else ""
 
     # 5) Proceso de clarificación
     clar = clarificador_chain.run({

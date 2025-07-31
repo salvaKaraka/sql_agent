@@ -21,8 +21,6 @@ def init_sql_agent(db_path: str, tenant_name: str, base_name: str):
     # Carga descripciones semánticas
     info = get_schema_info(tenant_name, base_name)
     # crea agente con custom_table_info
-    import os
-
     if not os.path.exists(db_path):
         raise FileNotFoundError(f"No se encontró la base de datos en: {db_path}")
 

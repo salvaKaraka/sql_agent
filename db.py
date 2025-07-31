@@ -63,6 +63,7 @@ def create_tenant(name: str):
 def register_tenant_database(tenant_name: str, base_name: str, db_path: str, schema_info: dict):
     print("Registrando nueva base...")
     
+    #cuando estemos en producción, db_path debe ser una ruta absoluta sin lo de sqlite:///
     if not db_path.startswith("sqlite:///"):
         if not db_path.startswith("./"):
             db_path = f"./{db_path}"

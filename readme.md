@@ -182,11 +182,11 @@ Este endpoint procesa la consulta en lenguaje natural y devuelve una respuesta c
         -d '{"query": "¿Cuáles son los pilotos con más años en F1?"}'
    ```
 
-4. Respuesta esperada:
+4. Ejemplo de respuesta esperada:
 
    ```json
    {
-     "sql": "SELECT piloto, MAX(año_ingreso) FROM pilotos;",
+     "status": "success",
      "results": [...],
      "explanation": "Esta consulta obtiene el piloto con mayor año de ingreso..."
    }

@@ -3,7 +3,7 @@ from fastapi import FastAPI, HTTPException, Header, Depends
 from sqlalchemy.exc import IntegrityError
 import secrets
 
-from db import init_admin_db, get_admin_session, get_tenant_db, get_schema_info
+from db import init_admin_db, get_admin_session, get_tenant_db, get_schema_info, set_schema_info
 from models import User, Tenant, TenantDatabase
 from memory import add_message, get_context_window
 from agent import init_sql_agent
@@ -103,25 +103,78 @@ def modify_schema(
     base_name: str,
     payload: dict,
 ):
+    """
+    Example payload:
+    {
+        "schema": {
+            "datos": "Descripción de la tabla de F1..."
+        }
+    }
+    """
+    # Validar payload
     new_schema = payload.get("schema")
     if new_schema is None:
-        raise HTTPException(status_code=400, detail="Falta el campo 'schema' en el body.")
+        raise HTTPException(
+            status_code=400, 
+            detail="Falta el campo 'schema' en el body del request."
+        )
+    
+    # Validar que el schema sea un diccionario
+    if not isinstance(new_schema, dict):
+        raise HTTPException(
+            status_code=400,
+            detail="El campo 'schema' debe ser un objeto JSON válido."
+        )
+    
+    # Validar que el schema no esté vacío
+    if not new_schema:
+        raise HTTPException(
+            status_code=400,
+            detail="El esquema no puede estar vacío."
+        )
 
-    db =get_admin_session()
-
-    tenant = db.query(Tenant).filter_by(name=tenant_name).first()
-    if not tenant:
-        raise HTTPException(status_code=404, detail="Tenant no encontrado")
-
-    base = db.query(TenantDatabase).filter_by(base_name=base_name, tenant_id=tenant.id).first()
-    if not base:
-        raise HTTPException(status_code=404, detail="Base de datos no encontrada")
-
-    # Sobrescribir el esquema
-    base.schema_info = new_schema
-    db.commit()
-
-    return {"resultado": "Esquema actualizado correctamente"}
+    try:
+        # Usar la función set_schema_info que maneja todo correctamente
+        success = set_schema_info(tenant_name, base_name, new_schema)
+        
+        if success:
+            # Opcional: obtener el formato que verá LangChain para confirmación
+            langchain_format = get_schema_info(tenant_name, base_name)
+            
+            return {
+                "status": "success",
+                "message": "Esquema actualizado correctamente",
+                "tenant": tenant_name,
+                "database": base_name,
+                "tables_updated": list(langchain_format.keys()) if langchain_format else [],
+                "langchain_preview": {
+                    table: desc[:100] + "..." if len(desc) > 100 else desc
+                    for table, desc in langchain_format.items()
+                } if langchain_format else {}
+            }
+        else:
+            raise HTTPException(
+                status_code=500,
+                detail="Error interno al actualizar el esquema. Revisa los logs del servidor."
+            )
+            
+    except ValueError as e:
+        # Error de validación (tenant/database no encontrado)
+        if "No se encontró" in str(e):
+            if "tenant" in str(e).lower():
+                raise HTTPException(status_code=404, detail=f"Tenant '{tenant_name}' no encontrado")
+            else:
+                raise HTTPException(status_code=404, detail=f"Base de datos '{base_name}' no encontrada para el tenant '{tenant_name}'")
+        else:
+            raise HTTPException(status_code=400, detail=str(e))
+    
+    except Exception as e:
+        # Error interno del servidor
+        print(f"Error inesperado en modify_schema: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail="Error interno del servidor al actualizar el esquema."
+        )
 
 @app.post("/admin/register_user", dependencies=[Depends(get_admin)])
 def register_user(tenant_id: int, username: str):

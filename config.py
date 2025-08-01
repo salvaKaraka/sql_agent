@@ -10,7 +10,7 @@ MEMORY_WINDOW = int(os.getenv("MEMORY_WINDOW", 10))
 MEMORY_DIR = os.getenv("MEMORY_DIR", "./.memories")
 
 # LLM
-LLM_MODEL = "gemini-2.0-flash-lite"
+LLM_MODEL = "gemini-2.5-pro"
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
 default_max = 250_000
 MAX_TOKENS_CONTEXT = int(os.getenv("MAX_TOKENS_CONTEXT", default_max))

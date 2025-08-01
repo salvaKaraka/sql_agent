@@ -7,7 +7,7 @@ import json
 from typing import Dict, Any
 
 # Engine y sesión para la base de administración (tenants.db)
-admin_engine = create_engine(ADMIN_DB_URL, connect_args={"check_same_thread": False})
+admin_engine = create_engine(ADMIN_DB_URL)
 AdminSession = sessionmaker(bind=admin_engine)
 
 def init_admin_db():
@@ -33,7 +33,7 @@ def get_tenant_db(tenant_name: str, base_name: str):
         raise ValueError(f"No se encontró base '{base_name}' para tenant '{tenant_name}'")
     
     path = entry.db_path
-    engine_t = create_engine(f"sqlite:///{path}", connect_args={"check_same_thread": False})
+    engine_t = create_engine(f"sqlite:///{path}", connect_args={"check_same_thread": False})  # sacar check_same_thread cuando no sea sqlite
     return sessionmaker(bind=engine_t)
 
 

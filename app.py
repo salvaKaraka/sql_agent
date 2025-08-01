@@ -247,8 +247,14 @@ def query_sql(
         SessionDB = get_tenant_db(tenant_name, base_name)
         db_path = SessionDB().bind.url.database
 
-        # 🧠 Armar input final para el agente LLM
-        input_text = f"""Contexto previo:
+        # 🧠 Armar input final para el agente SQL
+        input_text = f"""Cuando tengas la respuesta final, respondé con:
+
+Final Answer: [tu respuesta]
+
+No agregues ningún otro texto fuera de ese formato.
+
+        Contexto previo:
 {context_text}
 
 Esquema de la base:

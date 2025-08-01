@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Text, ForeignKey, DateTime, JSON, UniqueConstraint
+from sqlalchemy import Column, Integer, String, Text, ForeignKey, DateTime, UniqueConstraint
 from sqlalchemy.ext.declarative import declarative_base
 import datetime
 
@@ -23,7 +23,7 @@ class TenantDatabase(Base):
     tenant_id = Column(Integer, ForeignKey("tenants.id"), nullable=False)
     base_name = Column(String, nullable=False)
     db_path = Column(String, nullable=False)
-    schema_info = Column(JSON, nullable=True)
+    schema_info = Column(Text, nullable=True)
     __table_args__ = (UniqueConstraint('tenant_id', 'base_name', name='_tenant_base_uc'),)
 
 class ChatMessage(Base):

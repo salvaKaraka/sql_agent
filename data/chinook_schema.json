@@ -1,0 +1,122 @@
+{"schema": {
+  "artists": {
+    "description": "Contiene información sobre artistas musicales.",
+    "columns": {
+      "ArtistId": "Identificador único del artista.",
+      "Name": "Nombre del artista."
+    }
+  },
+  "albums": {
+    "description": "Contiene los álbumes musicales, cada uno asociado a un artista.",
+    "columns": {
+      "AlbumId": "Identificador único del álbum.",
+      "Title": "Título del álbum.",
+      "ArtistId": "Identificador del artista asociado."
+    }
+  },
+  "tracks": {
+    "description": "Contiene todas las canciones disponibles, junto con detalles técnicos y comerciales.",
+    "columns": {
+      "TrackId": "Identificador único de la canción.",
+      "Name": "Nombre de la canción.",
+      "AlbumId": "Álbum al que pertenece.",
+      "MediaTypeId": "Tipo de medio (MP3, WAV, etc).",
+      "GenreId": "Género musical.",
+      "Composer": "Compositor de la canción.",
+      "Milliseconds": "Duración de la canción en milisegundos.",
+      "Bytes": "Tamaño del archivo en bytes.",
+      "UnitPrice": "Precio unitario de la canción."
+    }
+  },
+  "genres": {
+    "description": "Géneros musicales asociados a canciones.",
+    "columns": {
+      "GenreId": "Identificador del género.",
+      "Name": "Nombre del género."
+    }
+  },
+  "media_types": {
+    "description": "Tipos de archivo disponibles para las canciones.",
+    "columns": {
+      "MediaTypeId": "Identificador del tipo de medio.",
+      "Name": "Nombre del tipo de medio (ej. MPEG audio)."
+    }
+  },
+  "customers": {
+    "description": "Información de los clientes que compran música.",
+    "columns": {
+      "CustomerId": "Identificador del cliente.",
+      "FirstName": "Nombre.",
+      "LastName": "Apellido.",
+      "Company": "Empresa (opcional).",
+      "Address": "Dirección.",
+      "City": "Ciudad.",
+      "State": "Provincia o estado.",
+      "Country": "País.",
+      "PostalCode": "Código postal.",
+      "Phone": "Teléfono.",
+      "Fax": "Fax.",
+      "Email": "Correo electrónico.",
+      "SupportRepId": "Empleado asignado como representante de soporte."
+    }
+  },
+  "employees": {
+    "description": "Empleados de la empresa, incluyendo vendedores y representantes de soporte.",
+    "columns": {
+      "EmployeeId": "ID del empleado.",
+      "FirstName": "Nombre.",
+      "LastName": "Apellido.",
+      "Title": "Puesto o rol.",
+      "ReportsTo": "Jefe directo (otro EmployeeId).",
+      "BirthDate": "Fecha de nacimiento.",
+      "HireDate": "Fecha de contratación.",
+      "Address": "Dirección.",
+      "City": "Ciudad.",
+      "State": "Provincia.",
+      "Country": "País.",
+      "PostalCode": "Código postal.",
+      "Phone": "Teléfono.",
+      "Fax": "Fax.",
+      "Email": "Correo electrónico."
+    }
+  },
+  "invoices": {
+    "description": "Facturas generadas por compras realizadas por los clientes.",
+    "columns": {
+      "InvoiceId": "ID de la factura.",
+      "CustomerId": "Cliente que realizó la compra.",
+      "InvoiceDate": "Fecha de la factura.",
+      "BillingAddress": "Dirección de facturación.",
+      "BillingCity": "Ciudad de facturación.",
+      "BillingState": "Estado de facturación.",
+      "BillingCountry": "País de facturación.",
+      "BillingPostalCode": "Código postal de facturación.",
+      "Total": "Monto total de la compra."
+    }
+  },
+  "invoice_items": {
+    "description": "Detalle de las canciones compradas en cada factura.",
+    "columns": {
+      "InvoiceLineId": "Identificador del ítem de factura.",
+      "InvoiceId": "Factura a la que pertenece.",
+      "TrackId": "Canción comprada.",
+      "UnitPrice": "Precio unitario.",
+      "Quantity": "Cantidad (si se compraron varias copias)."
+    }
+  },
+  "playlists": {
+    "description": "Listas de reproducción creadas por usuarios o el sistema.",
+    "columns": {
+      "PlaylistId": "Identificador de la playlist.",
+      "Name": "Nombre de la playlist."
+    }
+  },
+  "playlist_track": {
+    "description": "Tabla intermedia que conecta canciones con listas de reproducción.",
+    "columns": {
+      "PlaylistId": "ID de la playlist.",
+      "TrackId": "ID de la canción incluida."
+    }
+  }
+}
+}

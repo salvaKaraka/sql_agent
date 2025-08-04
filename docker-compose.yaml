@@ -1,0 +1,12 @@
+services:
+  bot:
+    build: .
+    ports:
+      - "8000:8000"
+    networks:
+      - shared
+
+networks:
+  shared:
+    external: true
+    name: proyectodatabase_default

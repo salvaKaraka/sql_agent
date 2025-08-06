@@ -9,9 +9,6 @@ from models import User, Tenant, TenantDatabase
 from memory import add_message, get_context_window
 from agent import init_sql_agent
 from chains.clarificador import clarificador_chain
-from chains.explicador import explicador_chain
-from chains.clasificador import clasificador_chain
-from chains.reformulador import reformulador_chain
 from chains.corrector import corrector_chain
 
 # Clave para proteger endpoints administrativos
@@ -287,48 +284,11 @@ Aclaraciones:
             })
             resultado = sql_agent.run(fixed_query.strip())
 
-    # 7) Generar explicación del resultado
-    explic = explicador_chain.run({
-        "contexto": context_text,
-        "pregunta": pregunta,
-        "schema": schema_text,
-        "resultado": resultado
-
-    }).strip()
-
-    # 8) Guardar resultado y explicación en la conversación
+    # 7) Guardar resultado y explicación en la conversación
     add_message(tenant_name, user.id, "assistant_query_result", resultado)
-    add_message(tenant_name, user.id, "assistant_explanation", explic)
 
     return {
         "status": "success",
         "result": resultado,
-        "explicacion": explic
+        "explicacion": "explicacion"
     }
-
-@app.post("/feedback/{tenant_name}/{base_name}")
-def feedback(
-    tenant_name: str,
-    base_name: str,
-    payload: dict,
-    user: User = Depends(get_current_user)
-):
-    """
-    Recibe feedback del usuario y, si no fue útil, reformula la consulta.
-    """
-    fb = payload.get("feedback", "")
-    if not fb:
-        raise HTTPException(400, "Falta campo 'feedback'")
-
-    utilidad = clasificador_chain.run({"feedback": fb}).strip().lower()
-    add_message(tenant_name, user.id, "user_feedback", fb)
-
-    if utilidad == "útil":
-        return {"status": "ok", "message": "¡Genial que haya servido!"}
-
-    context = get_context_window(tenant_name, user.id)
-    hist_str = "\n".join(f"{r}: {c}" for r, c in context)
-    nueva = reformulador_chain.run({"historial": hist_str, "nueva_aclaracion": fb}).strip()
-
-    add_message(tenant_name, user.id, "assistant_reformulated_query", nueva)
-    return {"status": "reformulate", "new_query": nueva}

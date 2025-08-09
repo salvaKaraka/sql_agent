@@ -1,7 +1,8 @@
-from sqlalchemy import Column, Integer, String, Text, ForeignKey, DateTime, UniqueConstraint
+from sqlalchemy import Boolean, Column, Integer, String, Text, ForeignKey, DateTime, UniqueConstraint
 from sqlalchemy.ext.declarative import declarative_base
 import datetime
 from sqlalchemy.dialects.postgresql import JSONB
+from pgvector.sqlalchemy import Vector
 
 Base = declarative_base()
 
@@ -35,3 +36,16 @@ class ChatMessage(Base):
     role = Column(String, nullable=False)
     content = Column(Text, nullable=False)
     timestamp = Column(DateTime, default=datetime.datetime.utcnow)
+    tokens_prompt = Column(Integer, nullable=True)      # tokens del prompt enviado al modelo
+    tokens_completion = Column(Integer, nullable=True)  # tokens de la respuesta generada
+    used_cache = Column(Boolean, default=False)          # si esta respuesta vino de cache
+
+class SemanticCache(Base):
+    __tablename__ = "semantic_cache"
+    id = Column(Integer, primary_key=True)
+    tenant_id = Column(Integer, ForeignKey("tenants.id"), nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    question = Column(Text, nullable=False)
+    embedding = Column(Vector(1536))  # tamaño típico de text-embedding-ada-002
+    answer = Column(Text, nullable=False)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)

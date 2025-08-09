@@ -1,49 +1,68 @@
-from models import ChatMessage, Tenant
-from db import get_admin_session
-from config import MAX_TOKENS_CONTEXT
+# memory.py
+# Cache volátil en memoria (por proceso)
 
-# Guarda un mensaje sin eliminar los anteriores
-def add_message(tenant_name: str, user_id: str, role: str, content: str):
+from collections import defaultdict
+from datetime import datetime, timedelta
+
+# Cache de agentes activos: {(tenant, base): agente}
+AGENT_CACHE = {}
+
+# Historial en memoria (temporal) — solo para rendimiento
+# Guardamos: (role, content, timestamp, tokens_prompt, tokens_completion, used_cache)
+CONTEXT_CACHE = defaultdict(list)
+CONTEXT_TTL = timedelta(hours=1)  # Expira en 1 hora
+
+
+# memory.py
+from db import get_admin_session
+from models import ChatMessage, Tenant
+from datetime import datetime
+
+def add_message(
+    tenant_name: str,
+    user_id: int,
+    role: str,
+    content: str,
+    tokens_prompt: int = None,
+    tokens_completion: int = None,
+    used_cache: bool = False
+):
+    """Guarda el mensaje tanto en memoria (para contexto rápido) como en la base de datos."""
+
+    # Guardar en cache volátil (opcional)
+    CONTEXT_CACHE[(tenant_name, user_id)].append(
+        (role, content, datetime.utcnow(), tokens_prompt, tokens_completion, used_cache)
+    )
+
+    # Guardar en la base de datos
     db = get_admin_session()
     tenant = db.query(Tenant).filter_by(name=tenant_name).first()
-    tenant_id = tenant.id if tenant else None
-
-    db.add(ChatMessage(
-        tenant_id=tenant_id,
-        user_id=user_id,
-        role=role,
-        content=content
-    ))
-    db.commit()
+    if tenant:
+        msg = ChatMessage(
+            tenant_id=tenant.id,
+            user_id=user_id,
+            role=role,
+            content=content,
+            tokens_prompt=tokens_prompt,
+            tokens_completion=tokens_completion,
+            used_cache=used_cache
+        )
+        db.add(msg)
+        db.commit()
     db.close()
 
-# Carga todos los mensajes para un usuario en una sesión
-def load_memory(tenant_name: str, user_id: str):
-    db = get_admin_session()
-    msgs = (
-        db.query(ChatMessage)
-          .filter_by(tenant_id=db.query(Tenant).filter_by(name=tenant_name).first().id,
-                     user_id=user_id)
-          .order_by(ChatMessage.timestamp.asc())
-          .all()
-    )
-    db.close()
-    return [(m.role, m.content) for m in msgs]
 
-# Ventana contextual basada en tokens
-def get_context_window(tenant_name: str, user_id: str, max_tokens=MAX_TOKENS_CONTEXT):
-    messages = load_memory(tenant_name, user_id)
-    total_tokens = 0
-    context = []
 
-    def estimate_tokens(text):
-        return len(text.split())
+def get_context_window(tenant_name: str, user_id: int, window_size: int = 5):
+    """Devuelve la ventana de contexto reciente (role, content)."""
+    now = datetime.utcnow()
+    msgs = [
+        (r, c) for r, c, ts, _, _, _ in CONTEXT_CACHE.get((tenant_name, user_id), [])
+        if now - ts < CONTEXT_TTL
+    ]
+    return msgs[-window_size:]
 
-    for role, content in reversed(messages):
-        tokens = estimate_tokens(content)
-        if total_tokens + tokens > max_tokens:
-            break
-        context.insert(0, (role, content))
-        total_tokens += tokens
 
-    return context
+def clear_context(tenant_name: str, user_id: int):
+    """Limpia el historial en memoria de un usuario."""
+    CONTEXT_CACHE.pop((tenant_name, user_id), None)

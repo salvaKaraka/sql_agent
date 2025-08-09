@@ -17,3 +17,5 @@ MAX_TOKENS_CONTEXT = int(os.getenv("MAX_TOKENS_CONTEXT", default_max))
 
 # Base de datos administrativa
 ADMIN_DB_URL = os.getenv("ADMIN_DB_URL", "sqlite:///./data/tenants.db")
+
+ADMIN_API_KEY = os.getenv("ADMIN_API_KEY")

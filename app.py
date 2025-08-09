@@ -1,30 +1,29 @@
-import json
-import os
+import secrets
 from fastapi import FastAPI, HTTPException, Header, Depends
 from sqlalchemy.exc import IntegrityError
-import secrets
-
-from db import init_admin_db, get_admin_session, get_tenant_db, get_schema_info, set_schema_info
+from config import ADMIN_API_KEY
+from db import (
+    init_admin_db, get_admin_session, get_tenant_db,
+    get_schema_info, set_schema_info,
+    get_semantic_cached_query, set_semantic_cached_query
+)
 from models import User, Tenant, TenantDatabase
 from memory import add_message, get_context_window
 from agent import init_sql_agent
-from chains.clarificador import clarificador_chain
-from chains.corrector import corrector_chain
 
-# Clave para proteger endpoints administrativos
-ADMIN_API_KEY = os.getenv("ADMIN_API_KEY")
+# Cache LLM local
+from langchain.globals import set_llm_cache
+from langchain.cache import SQLiteCache
+set_llm_cache(SQLiteCache(database_path="./data/llm_cache.db"))
+
 
 app = FastAPI(on_startup=[init_admin_db])
-#iniciar server con: uvicorn app:app --reload --host 0.0.0.0 --port 8000
 
-# ----------------------------------------
-# Dependencias de autenticación
-# ----------------------------------------
+# ---------------------------
+# Autenticación
+# ---------------------------
 
 def get_current_user(x_api_key: str = Header(...)):
-    """
-    Valida el header X-API-KEY y devuelve el usuario.
-    """
     db = get_admin_session()
     user = db.query(User).filter_by(api_key=x_api_key).first()
     db.close()
@@ -32,35 +31,24 @@ def get_current_user(x_api_key: str = Header(...)):
         raise HTTPException(status_code=401, detail="API key inválida")
     return user
 
-
 def get_admin(x_admin_key: str = Header(...)):
-    """
-    Valida el header X-ADMIN-KEY para endpoints administrativos.
-    """
     if x_admin_key != ADMIN_API_KEY:
         raise HTTPException(status_code=403, detail="Admin API key inválida")
     return True
 
-# ----------------------------------------
-# Endpoints de administración
-# ----------------------------------------
+# ---------------------------
+# Endpoints admin
+# ---------------------------
 
 @app.post("/admin/register_tenant", dependencies=[Depends(get_admin)])
 def register_tenant(name: str):
-    """
-    Registra un nuevo tenant (empresa).
-    """
     db = get_admin_session()
-    #verifica si ya existe el tenant, la id es autoincremental
     if db.query(Tenant).filter_by(name=name).first():
         db.close()
         raise HTTPException(400, "El tenant ya existe")
-    if not name:
+    if not name or len(name) < 3:
         db.close()
-        raise HTTPException(400, "El nombre del tenant no puede estar vacío")
-    if len(name) < 3:
-        db.close()
-        raise HTTPException(400, "El nombre del tenant debe tener al menos 3 caracteres")
+        raise HTTPException(400, "Nombre inválido")
     tenant = Tenant(name=name)
     db.add(tenant)
     db.commit()
@@ -70,19 +58,14 @@ def register_tenant(name: str):
 
 @app.post("/admin/register_database", dependencies=[Depends(get_admin)])
 def register_database(tenant_id: int, base_name: str, db_path: str, schema_info: dict = {}):
-    """
-    Registra una nueva base de datos para un tenant existente.
-    """
     db = get_admin_session()
     tenant = db.query(Tenant).get(tenant_id)
     if not tenant:
         db.close()
         raise HTTPException(404, "Tenant no encontrado")
     td = TenantDatabase(
-        tenant_id=tenant.id,
-        base_name=base_name,
-        db_path=db_path,
-        schema_info=schema_info
+        tenant_id=tenant.id, base_name=base_name,
+        db_path=db_path, schema_info=schema_info
     )
     db.add(td)
     try:
@@ -96,89 +79,15 @@ def register_database(tenant_id: int, base_name: str, db_path: str, schema_info:
     return {"database_id": td.id, "base_name": td.base_name}
 
 @app.post("/schema/{tenant_name}/{base_name}", dependencies=[Depends(get_admin)])
-def modify_schema(
-    tenant_name: str,
-    base_name: str,
-    payload: dict,
-):
-    """
-    Example payload:
-    {
-        "schema": {
-            "datos": "Descripción de la tabla de F1..."
-        }
-    }
-    """
-    # Validar payload
+def modify_schema(tenant_name: str, base_name: str, payload: dict):
     new_schema = payload.get("schema")
-    if new_schema is None:
-        raise HTTPException(
-            status_code=400, 
-            detail="Falta el campo 'schema' en el body del request."
-        )
-    
-    # Validar que el schema sea un diccionario
-    if not isinstance(new_schema, dict):
-        raise HTTPException(
-            status_code=400,
-            detail="El campo 'schema' debe ser un objeto JSON válido."
-        )
-    
-    # Validar que el schema no esté vacío
-    if not new_schema:
-        raise HTTPException(
-            status_code=400,
-            detail="El esquema no puede estar vacío."
-        )
-
-    try:
-        # Usar la función set_schema_info que maneja todo correctamente
-        success = set_schema_info(tenant_name, base_name, new_schema)
-        
-        if success:
-            # Opcional: obtener el formato que verá LangChain para confirmación
-            langchain_format = get_schema_info(tenant_name, base_name)
-            
-            return {
-                "status": "success",
-                "message": "Esquema actualizado correctamente",
-                "tenant": tenant_name,
-                "database": base_name,
-                "tables_updated": list(langchain_format.keys()) if langchain_format else [],
-                "langchain_preview": {
-                    table: desc[:100] + "..." if len(desc) > 100 else desc
-                    for table, desc in langchain_format.items()
-                } if langchain_format else {}
-            }
-        else:
-            raise HTTPException(
-                status_code=500,
-                detail="Error interno al actualizar el esquema. Revisa los logs del servidor."
-            )
-            
-    except ValueError as e:
-        # Error de validación (tenant/database no encontrado)
-        if "No se encontró" in str(e):
-            if "tenant" in str(e).lower():
-                raise HTTPException(status_code=404, detail=f"Tenant '{tenant_name}' no encontrado")
-            else:
-                raise HTTPException(status_code=404, detail=f"Base de datos '{base_name}' no encontrada para el tenant '{tenant_name}'")
-        else:
-            raise HTTPException(status_code=400, detail=str(e))
-    
-    except Exception as e:
-        # Error interno del servidor
-        print(f"Error inesperado en modify_schema: {e}")
-        raise HTTPException(
-            status_code=500,
-            detail="Error interno del servidor al actualizar el esquema."
-        )
+    if not isinstance(new_schema, dict) or not new_schema:
+        raise HTTPException(status_code=400, detail="Esquema inválido")
+    set_schema_info(tenant_name, base_name, new_schema)
+    return {"status": "success", "message": "Esquema actualizado"}
 
 @app.post("/admin/register_user", dependencies=[Depends(get_admin)])
 def register_user(tenant_id: int, username: str):
-    """
-    Registra un nuevo usuario bajo un tenant dado y genera su api_key.
-    """
     db = get_admin_session()
     tenant = db.query(Tenant).get(tenant_id)
     if not tenant:
@@ -186,7 +95,7 @@ def register_user(tenant_id: int, username: str):
         raise HTTPException(404, "Tenant no encontrado")
     if db.query(User).filter_by(username=username).first():
         db.close()
-        raise HTTPException(400, "El usuario ya existe")
+        raise HTTPException(400, "Usuario ya existe")
     api_key = secrets.token_urlsafe(32)
     user = User(username=username, api_key=api_key, tenant_id=tenant.id)
     db.add(user)
@@ -195,100 +104,68 @@ def register_user(tenant_id: int, username: str):
     db.close()
     return {"user_id": user.id, "username": user.username, "api_key": user.api_key}
 
-# ----------------------------------------
-# Endpoints de usuario
-# ----------------------------------------
+# ---------------------------
+# Endpoint de usuario
+# ---------------------------
 
 @app.post("/query/{tenant_name}/{base_name}")
-def query_sql(
-    tenant_name: str,
-    base_name: str,
-    payload: dict,
-    user: User = Depends(get_current_user)
-):
-    """
-    Procesa una consulta SQL en lenguaje natural usando contexto persistente.
-    """
-    # 1) Obtener pregunta del usuario
+def query_sql(tenant_name: str, base_name: str, payload: dict, user: User = Depends(get_current_user)):
     pregunta = payload.get("question")
     if not pregunta:
         raise HTTPException(status_code=400, detail="Falta campo 'question'")
 
-    # 2) Guardar pregunta original en la conversación
     add_message(tenant_name, user.id, "user", pregunta)
-
-    # 3) Cargar contexto de conversación previa
     context = get_context_window(tenant_name, user.id)
     context_text = "\n".join(f"{r}: {c}" for r, c in context) if context else ""
-
-    # 4) Cargar esquema semántico de la base
     schema_dict = get_schema_info(tenant_name, base_name)
     schema_text = str(schema_dict) if schema_dict else ""
 
-    # 5) Proceso de clarificación
-    clar = clarificador_chain.run({
-        "schema": schema_text,
-        "contexto": context_text,
-        "pregunta": pregunta
-    }).strip()
+    # 1️⃣ Cache semántico persistente
+    cached_result = get_semantic_cached_query(tenant_name, user.id, pregunta)
+    if cached_result:
+        add_message(
+        tenant_name, user.id, "assistant_query_result", cached_result,
+        tokens_prompt=0, tokens_completion=0, used_cache=True
+        )
+        return {"status": "success", "result": cached_result, "explicacion": "Respuesta desde cache semántico"}
 
-    add_message(tenant_name, user.id, "assistant_clarification", clar)
-
-    if clar != "NO_CLARIFICATION_NEEDED":
-        return {
-            "status": "clarification",
-            "questions": clar.split("\n")
-        }
-
-    # 6) Ejecutar la consulta con el agente SQL
+    # 2️⃣ Ejecutar consulta
     try:
         SessionDB = get_tenant_db(tenant_name, base_name)
         db_path = SessionDB().bind.url.database
-
-        # 🧠 Armar input final para el agente SQL
-        input_text = f"""Cuando tengas la respuesta final, respondé con:
-
-Final Answer: [tu respuesta]
-
-No agregues ningún otro texto fuera de ese formato.
-
-        Contexto previo:
+        input_text = f"""
+Sos un experto en SQL.
+Contexto:
 {context_text}
 
-Esquema de la base:
+Esquema:
 {schema_text}
 
-Pregunta del usuario:
+Pregunta:
 {pregunta}
 
-Aclaraciones:
-{clar}
+Instrucciones:
+- Si falta información, devolvé solo las preguntas necesarias (una por línea).
+- Si la consulta es clara, generá el SQL, ejecutalo y devolvé:
+Final Answer: [respuesta]
 """
-
-        # 🎯 Ejecutar agente
-        sql_agent = init_sql_agent(
-            db_path=db_path,
-            tenant_name=tenant_name,
-            base_name=base_name
-        )
+        sql_agent = init_sql_agent(db_path=db_path, tenant_name=tenant_name, base_name=base_name)
         resultado = sql_agent.run({"input": input_text})
+        # Si el agente devuelve metadata de tokens
+        token_usage = resultado.get("token_usage", {}) if isinstance(resultado, dict) else {}
+        prompt_tokens = token_usage.get("prompt_tokens", None)
+        completion_tokens = token_usage.get("completion_tokens", None)
+
+        add_message(
+            tenant_name, user.id, "assistant_query_result", resultado if isinstance(resultado, str) else resultado.get("output", ""),
+            tokens_prompt=prompt_tokens, tokens_completion=completion_tokens, used_cache=False
+        )
 
     except Exception as e:
-            error_msg = str(e)
+        raise HTTPException(status_code=500, detail=f"Error ejecutando consulta: {str(e)}")
 
-            # Llamás a la chain de corrección
-            fixed_query = corrector_chain.run({
-                "schema": schema_text,
-                "query": input_text,
-                "error": error_msg,
-            })
-            resultado = sql_agent.run(fixed_query.strip())
-
-    # 7) Guardar resultado y explicación en la conversación
+    # 3️⃣ Guardar respuesta
     add_message(tenant_name, user.id, "assistant_query_result", resultado)
+    set_semantic_cached_query(tenant_name, user.id, pregunta, resultado)
 
-    return {
-        "status": "success",
-        "result": resultado,
-        "explicacion": "explicacion"
-    }
+    return {"status": "success", "result": resultado, "explicacion": "Consulta ejecutada"}

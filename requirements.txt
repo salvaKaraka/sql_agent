@@ -6,6 +6,7 @@ langchain
 langchain_google_genai
 langchain_community
 python-dotenv
+langchain-openai
 tiktoken 
 psycopg2
 pgvector
